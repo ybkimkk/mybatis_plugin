@@ -1,0 +1,46 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <!--    插件 id-->
+    <id>com.mybatis.plugin.demo1</id>
+
+    <!--    插件名称-->
+    <name>Demo1</name>
+
+    <!--    版本号-->
+    <version>1.0</version>
+
+    <!--    作者信息-->
+    <vendor email="353007811@qq.com" url="https://www.qq.com">YBKIM</vendor>
+
+    <!--    插件描述-->
+    <description><![CDATA[
+asdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasdasd  ]]></description>
+
+    <!--    变更日志-->
+    <change-notes>1111</change-notes>
+
+    <!--    插件支持版本-->
+    <idea-version since-build="2023.3.2"/>
+
+    <!--    相关其他依赖-->
+    <depends>com.intellij.modules.platform</depends>
+
+    <!--    扩展内容-->
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow factoryClass="com.mybatis.plugin.view.WindowFactory"
+                    id="mybatis"
+                    anchor="right"
+        />
+    </extensions>
+
+    <!--    菜单动作-->
+    <actions>
+        <action id="PopupAction_ID" class="com.mybatis.plugin.action.PopupAction" text="添加笔记" description="添加笔记">
+            <add-to-group group-id="EditorPopupMenu" anchor="first"/>
+        </action>
+    </actions>
+
+    <application-components>
+
+    </application-components>
+</idea-plugin>
