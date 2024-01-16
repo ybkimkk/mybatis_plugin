@@ -21,20 +21,52 @@ public class ConvertUtil {
 
     private CrudKeyEnum sqlType;
 
+    private String tableName;
+    private String tableField;
+
+    private static final String SQL_ERROR = "sql 异常";
+
     public String toMybatis(String sql) {
         this.sql = sql.trim();
-        if (sql.trim().toUpperCase().startsWith(CrudKeyEnum.SELECT.getKey())) {
-            sqlType = CrudKeyEnum.SELECT;
-            return toMybatisSelect();
-        } else if (sql.trim().toUpperCase().startsWith(CrudKeyEnum.DELETE.getKey())) {
-            sqlType = CrudKeyEnum.DELETE;
-            return toMybatisDelete();
-        } else if (sql.trim().toUpperCase().startsWith(CrudKeyEnum.INSERT.getKey())) {
-            sqlType = CrudKeyEnum.INSERT;
-            return toMybatisInsert();
+        //检查 crud 语法是否正确
+        for (CrudKeyEnum value : CrudKeyEnum.values()) {
+            if (sql.trim().toUpperCase().startsWith(value.getKey())) {
+                this.sqlType = value;
+                break;
+            }
+        }
+        if (Objects.isNull(this.sqlType)) {
+            return SQL_ERROR;
         }
 
-        return null;
+        tableName = getTableName();
+        tableField = getTableField();
+        //select 和 delete 语句不检查
+        if (!sqlType.equals(CrudKeyEnum.SELECT) && !sqlType.equals(CrudKeyEnum.DELETE)) {
+            if (Strings.isNullOrEmpty(this.tableField)) {
+                return SQL_ERROR;
+            }
+        }
+
+        if (Strings.isNullOrEmpty(this.tableName)) {
+            return SQL_ERROR;
+        }
+
+
+        String returnValue;
+        if (sqlType.equals(CrudKeyEnum.SELECT)) {
+            returnValue = toMybatisSelect();
+        } else if (sqlType.equals(CrudKeyEnum.DELETE)) {
+            returnValue = toMybatisDelete();
+        } else if (sqlType.equals(CrudKeyEnum.INSERT)) {
+            returnValue = toMybatisInsert();
+        } else if (sqlType.equals(CrudKeyEnum.UPDATE)) {
+            returnValue = toMybatisUpdate();
+        } else {
+            return SQL_ERROR;
+        }
+
+        return returnValue;
     }
 
     public String toMysql(String sql) {
@@ -43,72 +75,55 @@ public class ConvertUtil {
 
 
     /**
+     * to mybatis Update
+     */
+    private String toMybatisUpdate() {
+        StringBuilder builder = new StringBuilder();
+        builder.append("update ");
+        builder.append(tableName);
+        builder.append(StringUtil.LINE_FEED);
+        String[] split = tableField.split(",");
+        StringBuilder ifBuilder = new StringBuilder();
+        for (String field : split) {
+            ifBuilder.append(editMybatisIfDom(field,field + " = " + editMybatisValue(field) + StringUtil.COMMA));
+        }
+        builder.append(String.format(MybatisFormatUtil.SET_DOM, ifBuilder));
+        builder.append(getMybatisWhereFromSql());
+        return String.format(MybatisFormatUtil.UPDATE_DOM, builder);
+    }
+
+
+    /**
      * to mybatis insert
      */
     private String toMybatisInsert() {
-        String tableName = getTableName(CrudKeyEnum.INSERT.getKey());
-
         StringBuilder builder = new StringBuilder();
         builder.append("insert into ");
         builder.append(tableName);
-        String tableField = getTableField();
-        if (Strings.isNullOrEmpty(tableField)) {
-            return null;
-        }
+        builder.append(StringUtil.LINE_FEED);
+        String[] fields = tableField.split(",");
+        StringBuilder ifBuilder = new StringBuilder();
 
         //INSERT INTO...SET 最终组装
         if (sql.toUpperCase().contains("SET")) {
-            builder.append(StringUtil.LINE_FEED);
-            String[] split = tableField.split(",");
-            StringBuilder ifBuilder = new StringBuilder();
-            for (String field : split) {
-                ifBuilder.append(String.format(MybatisFormatUtil.IF_DOM, field, field, field + " = " + editMybatisValue(field) + StringUtil.COMMA));
+            for (String field : fields) {
+                ifBuilder.append(editMybatisIfDom(field,field + " = " + editMybatisValue(field) + StringUtil.COMMA));
             }
             builder.append(String.format(MybatisFormatUtil.SET_DOM, ifBuilder));
-            return String.format(MybatisFormatUtil.INSERT_DOM, builder);
         }
         //INSERT INTO...VALUES 最终组装
         else {
-//            builder.append(String.format(MybatisFormatUtil.TRIM_DOM, "(", ")", StringUtil.COMMA, ifBuilder));
-        }
-
-        return null;
-    }
-
-    private String getTableField() {
-        Matcher regex;
-        if (sqlType.equals(CrudKeyEnum.SELECT)) {
-            regex = regex("(?i)SELECT\\\\s+([\\\\w,\\\\s]+)\\\\s+FROM", sql);
-        } else if (sqlType.equals(CrudKeyEnum.INSERT)) {
-            if (sql.toUpperCase().contains("SET")) {
-                //INSERT INTO...SET 正则需要进一步获取值
-                regex = regex("(?i)INSERT\\s+INTO\\s+`?\\w+`?\\s+SET\\s+([^;]+)", sql);
-                StringJoiner joiner = new StringJoiner(",");
-                if (regex.find()) {
-                    String[] split = regex.group(1).split(",");
-                    for (String s : split) {
-                        String[] split1 = s.split("=");
-                        joiner.add(split1[0].trim());
-                    }
-                }
-                return joiner.toString();
-            } else {
-                //INSERT INTO...VALUES语句;
-                regex = regex("(?i)INSERT\\s+INTO\\s+`?\\w+`?\\s*\\(([^)]+)\\)\\s*VALUES", sql);
-                if (regex.find()) {
-                    return regex.group();
-                }
+            for (String field : fields) {
+                ifBuilder.append(String.format(editMybatisIfDom(field,field)));
             }
-        } else if (sqlType.equals(CrudKeyEnum.UPDATE)) {
-            return null;
+            builder.append(String.format(MybatisFormatUtil.TRIM_DOM, "(", ")", StringUtil.COMMA, ifBuilder));
+            ifBuilder = new StringBuilder();
+            for (String field : fields) {
+                ifBuilder.append(String.format(editMybatisIfDom(field,editMybatisValue(field))));
+            }
+            builder.append(String.format(MybatisFormatUtil.TRIM_DOM, "values (", ")", StringUtil.COMMA, ifBuilder));
         }
-
-        return null;
-    }
-
-
-    private String getInsertSqlAfterSet() {
-        return null;
+        return String.format(MybatisFormatUtil.INSERT_DOM, builder);
     }
 
 
@@ -116,8 +131,13 @@ public class ConvertUtil {
      * to mybatis delete
      */
     private String toMybatisDelete() {
-        String tableName = getTableName(CrudKeyEnum.DELETE.getKey());
-        return String.format(MybatisFormatUtil.DELETE_DOM, tableName, getSelectSqlAfterWhere());
+        String where = getMybatisWhereFromSql();
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("delete from ");
+        stringBuilder.append(tableName);
+        stringBuilder.append(StringUtil.LINE_FEED);
+        stringBuilder.append(where);
+        return String.format(MybatisFormatUtil.DELETE_DOM, stringBuilder);
     }
 
 
@@ -125,23 +145,28 @@ public class ConvertUtil {
      * to mybatis select
      */
     private String toMybatisSelect() {
+        String returnValue;
         try {
             //提取 where 前面的语句
             String sqlBeforeWhere = getSqlBeforeWhere();
             //提取 where 后面的语句
-            String sqlAfterWhere = getSelectSqlAfterWhere();
+            String sqlAfterWhere = getMybatisWhereFromSql();
             //拼接 last 语句
             String sqlLast = getSqlLast();
 
-            return String.format(
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append(sqlBeforeWhere);
+            stringBuilder.append(StringUtil.LINE_FEED);
+            stringBuilder.append(sqlAfterWhere);
+            stringBuilder.append(StringUtil.LINE_FEED);
+            stringBuilder.append(sqlLast);
+            returnValue = String.format(
                     MybatisFormatUtil.SELECT_DOM,
-                    sqlBeforeWhere,
-                    sqlAfterWhere,
-                    sqlLast);
+                    stringBuilder);
         } catch (Exception e) {
-            e.printStackTrace();
-            return "sql 异常";
+            returnValue = SQL_ERROR;
         }
+        return returnValue;
     }
 
 
@@ -154,8 +179,9 @@ public class ConvertUtil {
         return StringUtil.EMPTY_STRING;
     }
 
-    private String getSelectSqlAfterWhere() {
+    private String getMybatisWhereFromSql() {
         Matcher matcher = regex(MybatisRegexUtil.SQL_SELECT_AFTER_WHERE, sql);
+        String returnValue = StringUtil.EMPTY_STRING;
         if (matcher.find()) {
             String conditions = matcher.group(1).trim();
             matcher = regex(MybatisRegexUtil.SQL_SELECT_AFTER_WHERE_PARAM, conditions);
@@ -165,16 +191,13 @@ public class ConvertUtil {
                 String logicalOperator = matcher.group(1);
                 String columnName = matcher.group(2);
                 String operator = matcher.group(3);
-                String format = String.format(MybatisFormatUtil.IF_DOM,
-                        columnName,
-                        columnName,
-                        (Objects.nonNull(logicalOperator) ? logicalOperator : " ") + columnName + " " + operator + editMybatisValue(columnName)
-                );
-                ifBuilder.append(format);
+                String ifValue = (Objects.nonNull(logicalOperator) ? logicalOperator : " ") + columnName + " " + operator + editMybatisValue(columnName);
+                String ifDom = editMybatisIfDom(columnName,ifValue);
+                ifBuilder.append(ifDom);
             }
-            return String.format(MybatisFormatUtil.WHERE_DOM, ifBuilder);
+            returnValue = String.format(MybatisFormatUtil.WHERE_DOM, ifBuilder);
         }
-        return StringUtil.EMPTY_STRING;
+        return returnValue;
     }
 
     private String getSqlLast() {
@@ -185,24 +208,30 @@ public class ConvertUtil {
         return StringUtil.EMPTY_STRING;
     }
 
-    private String getTableName(String type) {
-        Matcher regex;
-        if (CrudKeyEnum.DELETE.getKey().equals(type)) {
-            regex = regex(MybatisRegexUtil.GET_DELETE_TABLE_NAME, sql);
-        } else if (CrudKeyEnum.INSERT.getKey().equals(type)) {
+    private String getTableName() {
+        Matcher matcher;
+        if (CrudKeyEnum.DELETE.equals(sqlType)) {
+            matcher = regex(MybatisRegexUtil.GET_DELETE_TABLE_NAME, sql);
+        } else if (CrudKeyEnum.INSERT.equals(sqlType)) {
             if (sql.toUpperCase().contains("SET")) {
-                regex = regex(MybatisRegexUtil.GET_INSERT_SET_TABLE_NAME, sql);
+                matcher = regex(MybatisRegexUtil.GET_INSERT_SET_TABLE_NAME, sql);
             } else {
-                regex = regex(MybatisRegexUtil.GET_INSERT_TABLE_NAME, sql);
+                matcher = regex(MybatisRegexUtil.GET_INSERT_TABLE_NAME, sql);
             }
-            if (regex.find()) {
-                return regex.group(1);
-            }
-        } else if (CrudKeyEnum.UPDATE.getKey().equals(type)) {
-            return null;
+        } else if (CrudKeyEnum.UPDATE.equals(sqlType)) {
+            matcher = regex(MybatisRegexUtil.GET_UPDATE_TABLE_NAME, sql);
+        } else if (CrudKeyEnum.SELECT.equals(sqlType)) {
+            matcher = regex(MybatisRegexUtil.GET_SELECT_TABLE_NAME, sql);
+            ;
+        } else {
+            matcher = null;
         }
 
-        return null;
+        if (Objects.nonNull(matcher) && matcher.find()) {
+            return "`" + matcher.group(1) + "`";
+        }
+
+        return StringUtil.EMPTY_STRING;
     }
 
     private Matcher regex(String regex, String sql) {
@@ -212,5 +241,47 @@ public class ConvertUtil {
 
     private String editMybatisValue(String field) {
         return "#{" + CaseFormat.LOWER_UNDERSCORE.to(CaseFormat.LOWER_CAMEL, field) + "}";
+    }
+
+    private String editMybatisIfDom(String tableField, String condition) {
+        return String.format(
+                MybatisFormatUtil.IF_DOM,
+                tableField,
+                tableField,
+                condition
+        );
+    }
+
+    private String getTableField() {
+        Matcher matcher;
+        String returnValue = StringUtil.EMPTY_STRING;
+        if (sqlType.equals(CrudKeyEnum.INSERT)) {
+            if (sql.toUpperCase().contains("SET")) {
+                matcher = regex("(?i)INSERT\\s+INTO\\s+`?\\w+`?\\s+SET\\s+([^;]+)", sql);
+                returnValue = getSetSqlField(matcher);
+            } else {
+                matcher = regex("(?i)INSERT\\s+INTO\\s+`?\\w+`?\\s*\\(([^)]+)\\)\\s*VALUES", sql);
+                if (matcher.find()) {
+                    returnValue = matcher.group(1);
+                }
+            }
+        } else if (sqlType.equals(CrudKeyEnum.UPDATE)) {
+            matcher = regex("SET\\s+([^;]+)\\s*", sql);
+            returnValue = getSetSqlField(matcher);
+        }
+
+        return returnValue;
+    }
+
+    private String getSetSqlField(Matcher matcher) {
+        StringJoiner joiner = new StringJoiner(",");
+        if (matcher.find()) {
+            String[] split = matcher.group(1).split(",");
+            for (String s : split) {
+                String[] split1 = s.split("=");
+                joiner.add(split1[0].trim());
+            }
+        }
+        return joiner.toString();
     }
 }
