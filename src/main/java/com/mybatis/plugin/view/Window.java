@@ -3,8 +3,9 @@ package com.mybatis.plugin.view;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.wm.ToolWindow;
 import com.mybatis.plugin.tip.Tips;
-import com.mybatis.plugin.utils.ConvertUtil;
 import com.mybatis.plugin.utils.FocusUtil;
+import com.mybatis.plugin.utils.MybatisConvertUtil;
+import com.mybatis.plugin.utils.SqlConvertUtil;
 import lombok.Getter;
 
 import javax.swing.*;
@@ -27,21 +28,23 @@ public class Window {
 
 
     public Window(Project project, ToolWindow toolWindow) {
-        ConvertUtil mybatisUtil = new ConvertUtil();
+        MybatisConvertUtil mybatisUtil = new MybatisConvertUtil();
+        SqlConvertUtil sqlConvertUtil = new SqlConvertUtil();
+
         toMybatisButton.addActionListener(actionEvent -> {
             String text = inputText.getText();
-            String convert = mybatisUtil.toMybatis(text);
+            String convert = mybatisUtil.convert(text);
             resultText.setText(convert);
         });
 
         toMysqlButton.addActionListener(actionEvent -> {
             String text = inputText.getText();
-            String convert = mybatisUtil.toMysql(text);
+            String convert = sqlConvertUtil.convert(text);
             resultText.setText(convert);
         });
         //绑定text_area 焦点事件
         FocusUtil focusUtil = new FocusUtil();
-        focusUtil.bindFocusEvent(inputText,Tips.PLEASE_INPUT_MYSQL);
+        focusUtil.bindFocusEvent(inputText, Tips.PLEASE_INPUT_MYSQL);
     }
 
 }
